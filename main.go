@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
+	"github.com/derekparker/trie"
+	"log"
 	"math/rand"
+	"net/http"
+	"strings"
 )
 
 const (
@@ -90,8 +95,29 @@ func init() {
 
 }
 
-//Load dictionary into prefix tree
-func loadDictionary() {
+//Load list of valid words into a prefix tree
+func loadIntoPrefixTree() *trie.Trie {
+
+	//Read dictionary text file
+	resp, err := http.Get(dictionaryFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	//Close response body after use
+	defer resp.Body.Close()
+
+	//Load valid words in dictionary into prefix tree
+	t := trie.New()
+	s := bufio.NewScanner(resp.Body)
+	for tok := s.Scan(); tok != false; tok = s.Scan() {
+		words := strings.Fields(s.Text())
+		for _, word := range words {
+			t.Add(word, 1)
+		}
+	}
+
+	return t
 
 }
 
@@ -99,5 +125,7 @@ func main() {
 
 	board := boggleBoard()
 	printBoard(board)
+	t := loadIntoPrefixTree()
+	fmt.Println(t.HasKeysWithPrefix("ABAMP"))
 
 }
