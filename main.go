@@ -20,6 +20,7 @@ const (
 //Dice in the Boggle game. They are all in upper case and dictionary will also be in upper case. The letter U will be
 //implicit after Q
 var dice = []string{"AAEEGN", "AOOTTW", "DISTTY", "EIOSST", "ABBJOO", "CIMOTU", "EEGHNW", "ELRTTY", "ACHOPS", "DEILRX", "EEINSU", "HIMNQU", "AFFKPS", "DELRVY", "EHRTVW", "HLNNRZ"}
+var dieNumbers = []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 
 //Command line flags for simulated annealing parameters
 var acceptWorse bool
@@ -32,10 +33,68 @@ type boardDie struct {
 	dieFace   int
 }
 
+//Find face showing on the die
+func dieFace(dieNumber int, board [][]boardDie) int {
+
+	for _, row := range board {
+		for _, die := range row {
+			if die.dieNumber == dieNumber {
+				return die.dieFace
+			}
+		}
+	}
+
+	log.Fatal("Could not find die ", dieNumber)
+	return 0
+}
+
+//Perturb a die
+func perturbDie(board [][]boardDie, dieNumber, newDieFace int) {
+
+	for _, row := range board {
+		for dieIndex, _ := range row {
+			if row[dieIndex].dieNumber == dieNumber {
+				row[dieIndex].dieFace = newDieFace
+				return
+			}
+		}
+	}
+
+	log.Fatal("Could not find die ", dieNumber)
+}
+
+//Perturb board in the hope of getting one with a better score
+func perturbBoard(board [][]boardDie) [][]boardDie {
+
+	dieFaces := []int{0, 1, 2, 3, 4, 5}
+
+	//Make a copy of the board
+	boardCopy := make([][]boardDie, len(board))
+	copy(boardCopy, board)
+
+	remainingDice := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+
+	for counter := 0; counter < perturbationCount; counter++ {
+
+		//Pick a die to perturb
+		dieNumber := remainingDice[rand.Intn(len(remainingDice))]
+		dieFace := dieFace(dieNumber, boardCopy)
+
+		remainingDieFaces := append(dieFaces[:dieFace], dieFaces[dieFace+1:]...)
+		newDieFace := remainingDieFaces[rand.Intn(len(remainingDieFaces))]
+
+		perturbDie(boardCopy, dieNumber, newDieFace)
+
+		remainingDice = append(remainingDice[:dieNumber], remainingDice[dieNumber+1:]...)
+
+	}
+
+	return boardCopy
+}
+
 //Generate a random boggle board and return it
 func boggleBoard() [][]boardDie {
 
-	dieNumbers := []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 	board := make([][]boardDie, boardSide)
 
 	dieCounter := 0
@@ -92,6 +151,7 @@ func init() {
 	flag.Float64Var(&initialTemp, "t", 1000, "Initial temperature")
 	flag.Float64Var(&coolingRate, "c", 0.9, "Cooling rate")
 	flag.IntVar(&iterations, "i", 1000, "Number of iterations")
+	flag.Parse()
 
 }
 
@@ -127,5 +187,6 @@ func main() {
 	printBoard(board)
 	t := loadIntoPrefixTree()
 	fmt.Println(t.HasKeysWithPrefix("ABAMP"))
+	printBoard(perturbBoard(board))
 
 }
