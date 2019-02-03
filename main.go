@@ -22,6 +22,9 @@ const (
 var dice = []string{"AAEEGN", "AOOTTW", "DISTTY", "EIOSST", "ABBJOO", "CIMOTU", "EEGHNW", "ELRTTY", "ACHOPS", "DEILRX", "EEINSU", "HIMNQU", "AFFKPS", "DELRVY", "EHRTVW", "HLNNRZ"}
 var dieNumbers = []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 
+//Scores corresponding to word length
+var scores = []int{0, 0, 0, 1, 1, 2, 3, 5, 11, 11, 11, 11, 11, 11, 11, 11, 11}
+
 //Command line flags for simulated annealing parameters
 var acceptWorse bool
 var perturbationCount, iterations int
@@ -31,6 +34,12 @@ var initialTemp, coolingRate float64
 type boardDie struct {
 	dieNumber int
 	dieFace   int
+}
+
+//Row and column coordinates for a die
+type dieCoordinates struct {
+	row    int
+	column int
 }
 
 //Find face showing on the die
@@ -80,11 +89,14 @@ func perturbBoard(board [][]boardDie) [][]boardDie {
 		dieNumber := remainingDice[rand.Intn(len(remainingDice))]
 		dieFace := dieFace(dieNumber, boardCopy)
 
+		//Find new die face
 		remainingDieFaces := append(dieFaces[:dieFace], dieFaces[dieFace+1:]...)
 		newDieFace := remainingDieFaces[rand.Intn(len(remainingDieFaces))]
 
+		//Perturb the die
 		perturbDie(boardCopy, dieNumber, newDieFace)
 
+		//Remove perturbed die from future perturbations
 		remainingDice = append(remainingDice[:dieNumber], remainingDice[dieNumber+1:]...)
 
 	}
@@ -126,6 +138,149 @@ func boggleBoard() [][]boardDie {
 	}
 
 	return board
+}
+
+//Get neighbors of die that have already not been used
+func neighbors(row, column int, alreadyUsed map[dieCoordinates]bool) []dieCoordinates {
+
+	dieNeighbors := make([]dieCoordinates, 0, 8)
+
+	//Add neighbors above
+	if row != 0 {
+		if column != 0 {
+			candidate := dieCoordinates{row: row - 1, column: column - 1}
+			if _, present := alreadyUsed[candidate]; !present {
+				dieNeighbors = append(dieNeighbors, candidate)
+			}
+		}
+		candidate := dieCoordinates{row: row - 1, column: column}
+		if _, present := alreadyUsed[candidate]; !present {
+			dieNeighbors = append(dieNeighbors, candidate)
+		}
+		if column < boardSide-1 {
+			candidate := dieCoordinates{row: row - 1, column: column + 1}
+			if _, present := alreadyUsed[candidate]; !present {
+				dieNeighbors = append(dieNeighbors, candidate)
+			}
+		}
+	}
+
+	//Add neighbors below
+	if row < boardSide-1 {
+		if column != 0 {
+			candidate := dieCoordinates{row: row + 1, column: column - 1}
+			if _, present := alreadyUsed[candidate]; !present {
+				dieNeighbors = append(dieNeighbors, candidate)
+			}
+		}
+		candidate := dieCoordinates{row: row + 1, column: column}
+		if _, present := alreadyUsed[candidate]; !present {
+			dieNeighbors = append(dieNeighbors, candidate)
+		}
+		if column < boardSide-1 {
+			candidate := dieCoordinates{row: row + 1, column: column + 1}
+			if _, present := alreadyUsed[candidate]; !present {
+				dieNeighbors = append(dieNeighbors, candidate)
+			}
+		}
+	}
+
+	//Add neighbors at the sides
+	if column != 0 {
+		candidate := dieCoordinates{row: row, column: column - 1}
+		if _, present := alreadyUsed[candidate]; !present {
+			dieNeighbors = append(dieNeighbors, candidate)
+		}
+	}
+	if column < boardSide-1 {
+		candidate := dieCoordinates{row: row, column: column + 1}
+		if _, present := alreadyUsed[candidate]; !present {
+			dieNeighbors = append(dieNeighbors, candidate)
+		}
+	}
+
+	return dieNeighbors
+}
+
+//Add to already used dice map
+func add(alreadyUsed map[dieCoordinates]bool, neighbor dieCoordinates) map[dieCoordinates]bool {
+
+	newMap := make(map[dieCoordinates]bool, len(alreadyUsed)+1)
+	for k, v := range alreadyUsed {
+		newMap[k] = v
+	}
+
+	newMap[neighbor] = true
+
+	return newMap
+}
+
+//Compute score by adding neighbor
+func scoreWithNeighbor(prefix string, neighbor dieCoordinates, alreadyUsed map[dieCoordinates]bool,
+	dict *trie.Trie, board [][]boardDie, alreadyScored map[string]bool) int {
+
+	score := 0
+	neighborDie := board[neighbor.row][neighbor.column]
+
+	var str strings.Builder
+	str.WriteString(prefix)
+	str.WriteString(string(dice[neighborDie.dieNumber][neighborDie.dieFace]))
+	newPrefix := str.String()
+
+	//Check if any words start with the new prefix
+	if !dict.HasKeysWithPrefix(newPrefix) {
+		return 0
+	}
+
+	//Add score if new prefix is a valid word and has not already been scored
+	if _, found := dict.Find(newPrefix); found {
+		if _, scored := alreadyScored[newPrefix]; !scored {
+			score += scores[len(newPrefix)]
+			alreadyScored[newPrefix] = true
+			fmt.Printf("Score %d for word %s\n", scores[len(newPrefix)], newPrefix)
+		}
+	}
+
+	updatedAlreadyUsed := add(alreadyUsed, neighbor)
+
+	//Check for words starting with new prefix
+	dieNeighbors := neighbors(neighbor.row, neighbor.column, updatedAlreadyUsed)
+	for _, neighbor := range dieNeighbors {
+		score += scoreWithNeighbor(newPrefix, neighbor, updatedAlreadyUsed, dict, board, alreadyScored)
+	}
+
+	return score
+
+}
+
+//Compute score for the board
+func score(board [][]boardDie, dict *trie.Trie, alreadyScored map[string]bool) int {
+
+	boardScore := 0
+
+	//Loop through each position on the board
+	for rowNumber, row := range board {
+		for columnNumber, die := range row {
+
+			alreadyUsed := make(map[dieCoordinates]bool)
+			alreadyUsed[dieCoordinates{row: rowNumber, column: columnNumber}] = true
+			dieNeighbors := neighbors(rowNumber, columnNumber, alreadyUsed)
+
+			//Check if any words start with current die
+			dieFace := dice[die.dieNumber][die.dieFace]
+			if !dict.HasKeysWithPrefix(string(dieFace)) {
+				continue
+			}
+
+			//Check for words starting with die in current position
+			for _, neighbor := range dieNeighbors {
+				boardScore += scoreWithNeighbor(string(dieFace), neighbor, alreadyUsed, dict, board, alreadyScored)
+			}
+		}
+	}
+
+	return boardScore
+
 }
 
 //Print the boggle board to standard output
@@ -188,5 +343,6 @@ func main() {
 	t := loadIntoPrefixTree()
 	fmt.Println(t.HasKeysWithPrefix("ABAMP"))
 	printBoard(perturbBoard(board))
+	fmt.Println(score(board, t, make(map[string]bool)))
 
 }
