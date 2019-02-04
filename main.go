@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/derekparker/trie"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -26,7 +27,7 @@ var dieNumbers = []int{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
 var scores = []int{0, 0, 0, 1, 1, 2, 3, 5, 11, 11, 11, 11, 11, 11, 11, 11, 11}
 
 //Command line flags for simulated annealing parameters
-var acceptWorse bool
+var acceptWorse, logProgress bool
 var perturbationCount, iterations int
 var initialTemp, coolingRate float64
 
@@ -42,6 +43,14 @@ type dieCoordinates struct {
 	column int
 }
 
+type bestBoard struct {
+	board [][]boardDie
+	score int
+	words map[string]bool
+}
+
+var bestYet = bestBoard{board: nil, score: -1, words: nil}
+
 //Find face showing on the die
 func dieFace(dieNumber int, board [][]boardDie) int {
 
@@ -53,6 +62,7 @@ func dieFace(dieNumber int, board [][]boardDie) int {
 		}
 	}
 
+	fmt.Printf("%v\n", board)
 	log.Fatal("Could not find die ", dieNumber)
 	return 0
 }
@@ -68,7 +78,7 @@ func perturbDie(board [][]boardDie, dieNumber, newDieFace int) {
 			}
 		}
 	}
-
+	fmt.Printf("%v\n", board)
 	log.Fatal("Could not find die ", dieNumber)
 }
 
@@ -86,7 +96,8 @@ func perturbBoard(board [][]boardDie) [][]boardDie {
 	for counter := 0; counter < perturbationCount; counter++ {
 
 		//Pick a die to perturb
-		dieNumber := remainingDice[rand.Intn(len(remainingDice))]
+		dieIndex := rand.Intn(len(remainingDice))
+		dieNumber := remainingDice[dieIndex]
 		dieFace := dieFace(dieNumber, boardCopy)
 
 		//Find new die face
@@ -97,7 +108,7 @@ func perturbBoard(board [][]boardDie) [][]boardDie {
 		perturbDie(boardCopy, dieNumber, newDieFace)
 
 		//Remove perturbed die from future perturbations
-		remainingDice = append(remainingDice[:dieNumber], remainingDice[dieNumber+1:]...)
+		remainingDice = append(remainingDice[:dieIndex], remainingDice[dieIndex+1:]...)
 
 	}
 
@@ -237,7 +248,6 @@ func scoreWithNeighbor(prefix string, neighbor dieCoordinates, alreadyUsed map[d
 		if _, scored := alreadyScored[newPrefix]; !scored {
 			score += scores[len(newPrefix)]
 			alreadyScored[newPrefix] = true
-			fmt.Printf("Score %d for word %s\n", scores[len(newPrefix)], newPrefix)
 		}
 	}
 
@@ -302,10 +312,11 @@ func printBoard(board [][]boardDie) {
 func init() {
 
 	flag.BoolVar(&acceptWorse, "a", true, "Accept perturbed board with worse score")
+	flag.BoolVar(&logProgress, "l", false, "Log progress of best board search process")
 	flag.IntVar(&perturbationCount, "p", 1, "Number of dice to perturb to get next board")
 	flag.Float64Var(&initialTemp, "t", 1000, "Initial temperature")
-	flag.Float64Var(&coolingRate, "c", 0.9, "Cooling rate")
-	flag.IntVar(&iterations, "i", 1000, "Number of iterations")
+	flag.Float64Var(&coolingRate, "c", 0.99, "Cooling rate")
+	flag.IntVar(&iterations, "i", 1000, "Number of iterations of simulated annealing")
 	flag.Parse()
 
 }
@@ -336,13 +347,108 @@ func loadIntoPrefixTree() *trie.Trie {
 
 }
 
+//Print simulated annealing log
+func printLog() {
+
+	fmt.Println("Log...")
+
+}
+
+//Print best board along with associated score and words in the board
+func showBestBoard() {
+
+	fmt.Println("\nBest board:")
+	printBoard(bestYet.board)
+	fmt.Printf("Best board score: %d\n", bestYet.score)
+	fmt.Println("Best board words:")
+
+	for k := range bestYet.words {
+		fmt.Printf("%s\t", k)
+	}
+
+}
+
+//Save board as best yet board
+func saveBestYet(board [][]boardDie, boardScore int, boardWords map[string]bool) {
+
+	bestYet.board = make([][]boardDie, boardSide)
+	copy(bestYet.board, board)
+	bestYet.score = boardScore
+	bestYet.words = make(map[string]bool, len(boardWords))
+	for k, v := range boardWords {
+		bestYet.words[k] = v
+	}
+
+	showBestBoard()
+
+}
+
+//Return a copy of the board
+func copyBoard(board [][]boardDie) [][]boardDie {
+
+	boardCopy := make([][]boardDie, len(board))
+	copy(boardCopy, board)
+	return boardCopy
+
+}
+
 func main() {
 
-	board := boggleBoard()
-	printBoard(board)
-	t := loadIntoPrefixTree()
-	fmt.Println(t.HasKeysWithPrefix("ABAMP"))
-	printBoard(perturbBoard(board))
-	fmt.Println(score(board, t, make(map[string]bool)))
+	//Generate random board
+	prevBoard := boggleBoard()
+
+	//Valid words from online list
+	validWords := loadIntoPrefixTree()
+
+	//Compute score for the board
+	boardWords := make(map[string]bool)
+	boardScore := score(prevBoard, validWords, boardWords)
+
+	//Save as best yet board
+	saveBestYet(prevBoard, boardScore, boardWords)
+
+	boardToPerturb := copyBoard(prevBoard)
+
+	prevBoardScore := boardScore
+	currentTemperature := initialTemp
+
+	//Run for predetermined number of iterations
+	for counter := 0; counter < iterations; counter++ {
+
+		//Generate a new board by perturbing the previous one
+		perturbedBoard := perturbBoard(boardToPerturb)
+
+		perturbedBoardWords := make(map[string]bool)
+		newBoardScore := score(perturbedBoard, validWords, perturbedBoardWords)
+
+		//Save if this is the best yet
+		if newBoardScore > bestYet.score {
+			saveBestYet(perturbedBoard, newBoardScore, perturbedBoardWords)
+		}
+
+		//Keep the perturbed board if its better than the previous one
+		if newBoardScore > prevBoardScore {
+			boardToPerturb = copyBoard(perturbedBoard)
+			prevBoard = copyBoard(perturbedBoard)
+			prevBoardScore = newBoardScore
+		} else {
+			//Keep the worse board depending on probability
+			if acceptWorse && rand.Float64() < math.Exp(-1*float64(prevBoardScore-boardScore)/currentTemperature) {
+				boardToPerturb = copyBoard(perturbedBoard)
+				prevBoard = copyBoard(perturbedBoard)
+				prevBoardScore = newBoardScore
+			} else {
+				//Reject the perturbed board
+				boardToPerturb = copyBoard(prevBoard)
+				fmt.Println("Rejected board")
+				printBoard(perturbedBoard)
+			}
+		}
+
+		currentTemperature *= coolingRate
+
+	}
+
+	showBestBoard()
 
 }
