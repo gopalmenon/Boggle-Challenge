@@ -9,6 +9,7 @@ import (
 	"math"
 	"math/rand"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -44,12 +45,14 @@ type dieCoordinates struct {
 }
 
 type bestBoard struct {
-	board [][]boardDie
+	board string
 	score int
-	words map[string]bool
+	words string
 }
 
-var bestYet = bestBoard{board: nil, score: -1, words: nil}
+var bestYet = bestBoard{board: "", score: -1, words: ""}
+
+var runLog strings.Builder
 
 //Find face showing on the die
 func dieFace(dieNumber int, board [][]boardDie) int {
@@ -71,7 +74,7 @@ func dieFace(dieNumber int, board [][]boardDie) int {
 func perturbDie(board [][]boardDie, dieNumber, newDieFace int) {
 
 	for _, row := range board {
-		for dieIndex, _ := range row {
+		for dieIndex := range row {
 			if row[dieIndex].dieNumber == dieNumber {
 				row[dieIndex].dieFace = newDieFace
 				return
@@ -293,20 +296,6 @@ func score(board [][]boardDie, dict *trie.Trie, alreadyScored map[string]bool) i
 
 }
 
-//Print the boggle board to standard output
-func printBoard(board [][]boardDie) {
-
-	//For every row on the board
-	for _, row := range board {
-		//For every die in the row
-		for _, die := range row {
-			fmt.Printf("%c ", dice[die.dieNumber][die.dieFace])
-		}
-		fmt.Printf("\n")
-	}
-
-}
-
 //Parse command line flags for whether to accept boards with worse scores for simulated annealing and if so,
 //the number of perturbations, initial temperature and temperature cooling factor
 func init() {
@@ -316,7 +305,7 @@ func init() {
 	flag.IntVar(&perturbationCount, "p", 1, "Number of dice to perturb to get next board")
 	flag.Float64Var(&initialTemp, "t", 1000, "Initial temperature")
 	flag.Float64Var(&coolingRate, "c", 0.99, "Cooling rate")
-	flag.IntVar(&iterations, "i", 1000, "Number of iterations of simulated annealing")
+	flag.IntVar(&iterations, "i", 10000, "Number of iterations of simulated annealing")
 	flag.Parse()
 
 }
@@ -347,39 +336,43 @@ func loadIntoPrefixTree() *trie.Trie {
 
 }
 
-//Print simulated annealing log
-func printLog() {
-
-	fmt.Println("Log...")
-
-}
-
 //Print best board along with associated score and words in the board
 func showBestBoard() {
 
 	fmt.Println("\nBest board:")
-	printBoard(bestYet.board)
+	fmt.Println(bestYet.board)
 	fmt.Printf("Best board score: %d\n", bestYet.score)
 	fmt.Println("Best board words:")
-
-	for k := range bestYet.words {
-		fmt.Printf("%s\t", k)
-	}
+	fmt.Println(bestYet.words)
 
 }
 
 //Save board as best yet board
 func saveBestYet(board [][]boardDie, boardScore int, boardWords map[string]bool) {
 
-	bestYet.board = make([][]boardDie, boardSide)
-	copy(bestYet.board, board)
+	var boardStr strings.Builder
+
+	//For every row on the board
+	for _, row := range board {
+		//For every die in the row
+		for _, die := range row {
+			boardStr.WriteString(string(dice[die.dieNumber][die.dieFace]))
+			boardStr.WriteString(" ")
+		}
+		boardStr.WriteString("\n")
+	}
+	bestYet.board = boardStr.String()
+
 	bestYet.score = boardScore
-	bestYet.words = make(map[string]bool, len(boardWords))
-	for k, v := range boardWords {
-		bestYet.words[k] = v
+
+	var wordsStr strings.Builder
+
+	for k := range boardWords {
+		wordsStr.WriteString(k)
+		wordsStr.WriteString(" ")
 	}
 
-	showBestBoard()
+	bestYet.words = wordsStr.String()
 
 }
 
@@ -424,6 +417,10 @@ func main() {
 		//Save if this is the best yet
 		if newBoardScore > bestYet.score {
 			saveBestYet(perturbedBoard, newBoardScore, perturbedBoardWords)
+			if logProgress {
+				runLog.WriteString("\nSaved best yet board at iteration ")
+				runLog.WriteString(strconv.Itoa(counter))
+			}
 		}
 
 		//Keep the perturbed board if its better than the previous one
@@ -431,17 +428,27 @@ func main() {
 			boardToPerturb = copyBoard(perturbedBoard)
 			prevBoard = copyBoard(perturbedBoard)
 			prevBoardScore = newBoardScore
+			if logProgress {
+				runLog.WriteString("\nNew board better than previous board at iteration ")
+				runLog.WriteString(strconv.Itoa(counter))
+			}
 		} else {
 			//Keep the worse board depending on probability
 			if acceptWorse && rand.Float64() < math.Exp(-1*float64(prevBoardScore-boardScore)/currentTemperature) {
 				boardToPerturb = copyBoard(perturbedBoard)
 				prevBoard = copyBoard(perturbedBoard)
 				prevBoardScore = newBoardScore
+				if logProgress {
+					runLog.WriteString("\nAccepted worse board at iteration ")
+					runLog.WriteString(strconv.Itoa(counter))
+				}
 			} else {
 				//Reject the perturbed board
 				boardToPerturb = copyBoard(prevBoard)
-				fmt.Println("Rejected board")
-				printBoard(perturbedBoard)
+				if logProgress {
+					runLog.WriteString("\nRejected worse board at iteration ")
+					runLog.WriteString(strconv.Itoa(counter))
+				}
 			}
 		}
 
@@ -449,6 +456,9 @@ func main() {
 
 	}
 
+	if logProgress {
+		fmt.Println(runLog.String())
+	}
 	showBestBoard()
 
 }
