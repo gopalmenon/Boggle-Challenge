@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const (
@@ -29,7 +30,7 @@ var scores = []int{0, 0, 0, 1, 1, 2, 3, 5, 11, 11, 11, 11, 11, 11, 11, 11, 11}
 
 //Command line flags for simulated annealing parameters
 var acceptWorse, logProgress bool
-var perturbationCount, iterations int
+var perturbationCount, minutesToRun int
 var initialTemp, coolingRate float64
 
 //Die number and face number of a die on the board
@@ -305,7 +306,7 @@ func init() {
 	flag.IntVar(&perturbationCount, "p", 1, "Number of dice to perturb to get next board")
 	flag.Float64Var(&initialTemp, "t", 1000, "Initial temperature")
 	flag.Float64Var(&coolingRate, "c", 0.99, "Cooling rate")
-	flag.IntVar(&iterations, "i", 10000, "Number of iterations of simulated annealing")
+	flag.IntVar(&minutesToRun, "m", 2, "Number of minutes to run the board search")
 	flag.Parse()
 
 }
@@ -385,7 +386,19 @@ func copyBoard(board [][]boardDie) [][]boardDie {
 
 }
 
+//Wait for predetermined duration
+func wait(quit chan bool) {
+
+	time.Sleep(time.Duration(minutesToRun) * time.Minute)
+	quit <- true
+
+}
+
 func main() {
+
+	//Create channel for sending a command to quit
+	quit := make(chan bool)
+	go wait(quit)
 
 	//Generate random board
 	prevBoard := boggleBoard()
@@ -405,54 +418,68 @@ func main() {
 	prevBoardScore := boardScore
 	currentTemperature := initialTemp
 
-	//Run for predetermined number of iterations
-	for counter := 0; counter < iterations; counter++ {
+	counter := 0
+	//Run till quit command is received
 
-		//Generate a new board by perturbing the previous one
-		perturbedBoard := perturbBoard(boardToPerturb)
+loopForever:
+	for {
 
-		perturbedBoardWords := make(map[string]bool)
-		newBoardScore := score(perturbedBoard, validWords, perturbedBoardWords)
+		select {
 
-		//Save if this is the best yet
-		if newBoardScore > bestYet.score {
-			saveBestYet(perturbedBoard, newBoardScore, perturbedBoardWords)
-			if logProgress {
-				runLog.WriteString("\nSaved best yet board at iteration ")
-				runLog.WriteString(strconv.Itoa(counter))
+		case <-quit:
+			fmt.Printf("Ending after running for %d minute(s)\n", minutesToRun)
+			break loopForever
+
+		default:
+
+			//Generate a new board by perturbing the previous one
+			perturbedBoard := perturbBoard(boardToPerturb)
+
+			perturbedBoardWords := make(map[string]bool)
+			newBoardScore := score(perturbedBoard, validWords, perturbedBoardWords)
+
+			//Save if this is the best yet
+			if newBoardScore > bestYet.score {
+				saveBestYet(perturbedBoard, newBoardScore, perturbedBoardWords)
+				if logProgress {
+					runLog.WriteString("\nSaved best yet board at iteration ")
+					runLog.WriteString(strconv.Itoa(counter))
+				}
 			}
-		}
 
-		//Keep the perturbed board if its better than the previous one
-		if newBoardScore > prevBoardScore {
-			boardToPerturb = copyBoard(perturbedBoard)
-			prevBoard = copyBoard(perturbedBoard)
-			prevBoardScore = newBoardScore
-			if logProgress {
-				runLog.WriteString("\nNew board better than previous board at iteration ")
-				runLog.WriteString(strconv.Itoa(counter))
-			}
-		} else {
-			//Keep the worse board depending on probability
-			if acceptWorse && rand.Float64() < math.Exp(-1*float64(prevBoardScore-boardScore)/currentTemperature) {
+			//Keep the perturbed board if its better than the previous one
+			if newBoardScore > prevBoardScore {
 				boardToPerturb = copyBoard(perturbedBoard)
 				prevBoard = copyBoard(perturbedBoard)
 				prevBoardScore = newBoardScore
 				if logProgress {
-					runLog.WriteString("\nAccepted worse board at iteration ")
+					runLog.WriteString("\nNew board better than previous board at iteration ")
 					runLog.WriteString(strconv.Itoa(counter))
 				}
 			} else {
-				//Reject the perturbed board
-				boardToPerturb = copyBoard(prevBoard)
-				if logProgress {
-					runLog.WriteString("\nRejected worse board at iteration ")
-					runLog.WriteString(strconv.Itoa(counter))
+				//Keep the worse board depending on probability
+				if acceptWorse && rand.Float64() < math.Exp(-1*float64(prevBoardScore-boardScore)/currentTemperature) {
+					boardToPerturb = copyBoard(perturbedBoard)
+					prevBoard = copyBoard(perturbedBoard)
+					prevBoardScore = newBoardScore
+					if logProgress {
+						runLog.WriteString("\nAccepted worse board at iteration ")
+						runLog.WriteString(strconv.Itoa(counter))
+					}
+				} else {
+					//Reject the perturbed board
+					boardToPerturb = copyBoard(prevBoard)
+					if logProgress {
+						runLog.WriteString("\nRejected worse board at iteration ")
+						runLog.WriteString(strconv.Itoa(counter))
+					}
 				}
 			}
-		}
 
-		currentTemperature *= coolingRate
+			currentTemperature *= coolingRate
+			counter++
+
+		}
 
 	}
 
