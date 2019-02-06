@@ -25,6 +25,6 @@ It can be also be run using these flags
 
 Here are the default values for the flags: ```-a=true -l=false -p=1 -t=1000 -c=0.99 -m=2```
 
-Here is an sample run command for runnng the board search for 5 minutes
+Here is a sample run command for runnng the board search for 5 minutes
 
 ```go run Boggle-Challenge -m=5```
