@@ -32,3 +32,5 @@ Here are the default values for the flags: ```-a=true -l=false -p=1 -t=1000 -c=0
 Here is a sample run command for runnng the board search for 5 minutes
 
 ```go run Boggle-Challenge -m=5```
+
+The current best score I get is 1346. There are some improvements for which I have logged issues and will attempt soon.
