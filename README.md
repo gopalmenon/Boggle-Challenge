@@ -1,5 +1,5 @@
 # Boggle-Challenge
-(as described [here](https://gist.github.com/scottburton11/a2d8afcee57d13232ed4))
+(as described [here](https://codegolf.stackexchange.com/questions/5654/best-scoring-boggle-board))
 
 Given a set of boggle dice, and a time limit, come up with the best possible boggle board, its corresponding score and the words found.
 
